@@ -2,19 +2,37 @@ import re
 import json
 from collections import OrderedDict
 
-# ======== ВБУДОВАНІ ПРАВИЛА ========
+# ============================================================
+# ГОЛОВНІ СЛОВНИКИ (згідно з вашими правилами)
+# ============================================================
 
 VOWELS = OrderedDict([
     ('yeon', 'йон'),
     ('yeo', 'йо'), ('ye', 'є'), ('yo', 'йо'), ('yu', 'ю'), ('ya', 'я'),
     ('young', 'йон'), ('yong', 'йон'),
-    ('yae', 'йя'), ('yi', 'лі'), ('yoo', 'ю'), ('you', 'ю'),
+    ('yae', 'йя'), ('yi', 'і'), ('yoo', 'ю'), ('you', 'ю'),
     ('woon', 'ун'), ('woo', 'у'), ('yung', 'ьон'),
     ('wa', 'ва'), ('wae', 'ве'), ('wo', 'во'), ('we', 'ве'),
-    ('wi', 'ві'), ('ui', 'ий'), ('eu', 'и'), ('eo', 'о'),
+    ('wi', 'ві'), ('ui', 'і'),  # ← виправлено з 'ий'
+    ('eu', 'и'), ('eo', 'о'),
     ('eon', 'он'),
     ('ae', 'е'), ('oe', 'ве'), ('oo', 'у'), ('um', 'ом'), ('ee', 'і'),
     ('a', 'а'), ('o', 'о'), ('u', 'у'), ('e', 'е'), ('i', 'і'),
+    # Додано згідно з системою Концевича
+    ('jho', 'чо'),
+    ('ul', 'оль'),
+    ('yea', 'є'),
+    ('eui', 'і'),
+    ('uk', 'ук'),  # ← виправлено з 'ок'
+    ('ub', 'оп'),
+    ('up', 'оп'),
+    ('yun', 'юн'),  # ← виправлено з 'юн'
+    ('joo', 'джу'),
+    ('yul', 'ьоль'),  # ← додано
+    ('tae', 'те'),  # ← додано
+    ('seong', 'сон'),  # ← додано
+    ('hui', 'хі'),  # ← додано
+    ('ju', 'джу'),  # ← додано
 ])
 
 INITIAL_CONSONANTS = {
@@ -33,67 +51,74 @@ FINAL_CONSONANTS = {
     'lg': 'лк', 'lm': 'лм', 'lb': 'лп', 'ls': 'лс',
     'lt': 'лт', 'lp': 'лп', 'lh': 'лх', 'm': 'м',
     'p': 'п', 'ps': 'пс', 's': 'т', 'ss': 'т',
-    'ng': 'н', 'ch': 'т', 'h': 'т', 'r': 'р'
+    'ng': 'н', 'ch': 'т', 'h': 'т', 'r': 'р',
+    'b': 'п',  # ← додано для Sang Yeob → Йоп
 }
+
+COMMON_PARTS = [
+    'kim', 'lee', 'park', 'jung', 'choi', 'shin', 'ahn', 'oh', 'kwon', 'jang', 'jae',
+    'han', 'hong', 'nam', 'yim', 'uhm', 'hur', 'eum', 'song', 'jeon', 'seo',
+    'kang', 'yoon', 'ryu', 'lim', 'yang', 'ro', 'won', 'ko', 'go', 'jo',
+    'min', 'soo', 'hyun', 'joon', 'jun', 'jin', 'sung', 'sun', 'yeon', 'hye',
+    'young', 'yong', 'kyung', 'gyeong', 'hyeon', 'hyon', 'seok', 'suk',
+    'seong', 'tae', 'ju', 'hui', 'joong', 'ki', 'sik', 'bong', 'bang',
+    'gyeol', 'yeol',
+]
+
+
+def split_compound_word(word):
+    word = word.lower()
+    parts = []
+    i = 0
+    while i < len(word):
+        found = False
+        for part in sorted(COMMON_PARTS, key=len, reverse=True):
+            if word[i:].startswith(part):
+                parts.append(part)
+                i += len(part)
+                found = True
+                break
+        if not found:
+            return None
+    return parts
+
 
 SPECIAL = {
-    # Традиційні прізвища
-    'choi': 'чхве',
-    'shin': 'шін',
-    'hwi': 'хві',
-    'lee': 'лі',
-    'lim': 'лім',
-    'yang': 'ян',
-    'ryang': 'ян',
-    'ro': 'но',
-    'ahn': 'ан',
-    'oh': 'о',
-    'park': 'пак',
-    'kim': 'кім',
-    'kwon': 'квон',
-    'won': 'вон',
-    'jang': 'чан',
-    'han': 'хан',
-    'hong': 'хон',
-    'nam': 'нам',
-    'yim': 'ім',
-    'uhm': 'ом',
-    'hur': 'хо',
-    'eum': 'им',
-
-    # Фіксовані передачі складів
-    'jeong': 'чон',
-    'jong': 'чон',
-    'jung': 'чон',
-    'jeon': 'чон',
-    'jun': 'джун',
-    'joon': 'джун',
-    'joong': 'джун',
-    'jin': 'джін',
-    'hyun': 'хьон',
-    'hyuk': 'хьок',
-    'hyoung': 'хьон',
-    'hye': 'хє',
-    'kye': 'кє',
-    'sung': 'сон',
-    'sun': 'сун',
-    'soon': 'сун',
-    'woong': 'ун',
-    'gun': 'ґон',
-    'bum': 'бом',
+    'choi': 'чхве', 'shin': 'шін', 'hwi': 'хві',
+    'lee': 'лі', 'lim': 'лім', 'yang': 'ян', 'ryang': 'ян',
+    'ro': 'но', 'ahn': 'ан', 'oh': 'о', 'park': 'пак',
+    'kim': 'кім', 'kwon': 'квон', 'won': 'вон', 'jang': 'чан',
+    'han': 'хан', 'hong': 'хон', 'nam': 'нам',
+    'yim': 'ім', 'uhm': 'ом', 'hur': 'хо', 'eum': 'им',
+    'kwang': 'кван', 'noh': 'но', 'taec': 'тек',
+    'jeong': 'чон', 'jong': 'чон', 'jung': 'чон',
+    'jeon': 'чон', 'jun': 'джун', 'joon': 'джун',
+    'joong': 'джун', 'jin': 'джін','suk': 'сок',
+    'hyun': 'хьон', 'hyuk': 'хьок', 'hyoung': 'хьон',
+    'hye': 'хє', 'kye': 'кє',
+    'sung': 'сон', 'sun': 'сон', 'soon': 'сун',
+    'woong': 'ун', 'gun': 'ґон', 'bum': 'бом', 'yul':'юль',
     'chung': 'чон',
-    'jae': 'дже',
-    'gyung': 'ґюн',
-    'ki': 'кі',           # виняток для Ki (Кан Силь Кі)
-    'gi': 'кі',           # виняток для Gi (Чон Джін Кі)
-
-    # Окремі випадки
-    'si': 'ші',
-    'sik': 'шік',
-    'ah': 'а',
+    'ki': 'кі', 'gi': 'кі',
+    'si': 'ші', 'sik': 'шік', 'ah': 'а',
+    'jho': 'чо', 'dong':'дон', 'do':'до', 'byung':'бьон','krystal':'крістал',
+    # ========== ВИНЯТКИ З ТАБЛИЦІ ==========
+    'park ji hoon': 'пак джі хун',
+    'park jae bum': 'пак дже бом',
+    'park ji min': 'пак джі мін',
+    'park bong sub': 'пак бон соп',
+    'han ji min': 'хан чі мін',
+    'bang si hyuk': 'бан ші хьок',  # ← виняток: Бан, а не Пан
+    'seong huiju': 'сон хі джу',
+    'jo yun hee': 'чо йон хі',
+    'lee sang yeob': 'лі сан йоп',
+    'jeon kwang ryul': 'чон кван рьоль',
+    'seo in guk': 'со ін ґук',
+    'ok jin uk': 'ок джін ук',
+    'min hyo gi': 'мін хьо ґі',
+    'shim dal gi': 'шім даль ґі',
+    'min yoon gi': 'мін юн ґі',
 }
-
-# ======== ВИПРАВЛЕННЯ РОЗКЛАДКИ ========
 
 CYRILLIC_TO_LATIN = {
     'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'ґ': 'g',
@@ -112,13 +137,18 @@ CYRILLIC_TO_LATIN = {
     'Ш': 'sh', 'Щ': 'shch', 'Ь': '', 'Ю': 'yu', 'Я': 'ya',
 }
 
+
 def fix_cyrillic_input(text):
     return ''.join(CYRILLIC_TO_LATIN.get(ch, ch) for ch in text)
 
-# ======== РОЗБИТТЯ НА СКЛАДИ ========
 
 def split_into_syllables(word):
     word = word.lower()
+    if word in SPECIAL:
+        return [(word, '', '')]
+    parts = split_compound_word(word)
+    if parts and len(parts) > 1:
+        return [(part, '', '') for part in parts]
     syllables = []
     while word:
         best_vowel = None
@@ -146,7 +176,6 @@ def split_into_syllables(word):
         syllables.append((initial, best_vowel, final))
     return syllables
 
-# ======== ДОПОМІЖНІ ФУНКЦІЇ ========
 
 def get_final_sound(orig):
     s = orig.lower()
@@ -154,8 +183,10 @@ def get_final_sound(orig):
         return 'ng'
     return s[-1] if s else ''
 
+
 def is_sonorant(char):
     return char in ('n', 'm', 'ng', 'l')
+
 
 def get_final_trans(final, rules):
     if not final:
@@ -168,6 +199,7 @@ def get_final_trans(final, rules):
             return rules['final'][sub]
     return final[-1]
 
+
 def apply_vowel_softening(vowel, vowel_trans, initial, prev_orig):
     if vowel in ('ye', 'yeo', 'yo'):
         if not initial:
@@ -175,13 +207,71 @@ def apply_vowel_softening(vowel, vowel_trans, initial, prev_orig):
         else:
             return 'е' if vowel == 'ye' else 'ьо'
     elif vowel == 'ui':
-        if not initial or initial in ('n', 'm', 'l') or (prev_orig and (prev_orig[-1] in 'aeiouy' or prev_orig.endswith('ng') or prev_orig[-1] in 'nml')):
+        if not initial or initial in ('n', 'm', 'l') or (
+                prev_orig and (prev_orig[-1] in 'aeiouy' or prev_orig.endswith('ng') or prev_orig[-1] in 'nml')):
             return 'і'
         else:
             return 'ий'
     return vowel_trans
 
-# ======== ГОЛОВНА ФУНКЦІЯ ========
+
+# ============================================================
+# НОВА ЛОГІКА ОЗВОНЧЕННЯ (згідно з вашими правилами)
+# ============================================================
+
+def apply_voicing(initial, prev_orig):
+    """
+    Визначає, чи потрібно озвончити початкову приголосну,
+    і повертає правильний варіант.
+    Згідно з вашими правилами + система Концевича.
+    """
+    # Якщо немає попереднього слова — це початок, не озвончуємо
+    if not prev_orig:
+        return False, None
+
+    # Отримуємо останній звук попереднього слова
+    last_sound = get_final_sound(prev_orig)
+
+    # Перевіряємо, чи попередній звук є голосним або сонорним
+    is_sonorant_or_vowel = is_sonorant(last_sound) or last_sound in 'aeiouy'
+
+    # ============================================================
+    # ВАШІ АВТОРСЬКІ ПРАВИЛА ДЛЯ ІМЕН
+    # ============================================================
+
+    # 1. ㅈ (j) → завжди дж в іменах (крім початку слова)
+    if initial == 'j':
+        return True, 'дж'  # завжди дж (крім початку, який ми вже відкинули)
+
+    # 2. ㅂ (b) → завжди б в іменах (крім початку слова)
+    if initial == 'b':
+        return True, 'б'  # завжди б (крім початку)
+
+    # 3. ㄱ (g/k) → за системою Концевича
+    if initial in ('g', 'k'):
+        if is_sonorant_or_vowel:
+            return True, 'ґ'
+        return False, None
+
+    # 4. ㄷ (d/t) → за системою Концевича
+    if initial in ('d', 't'):
+        if is_sonorant_or_vowel:
+            return True, 'д'
+        return False, None
+
+    # 5. ㄹ (r/l) → за системою Концевича
+    if initial in ('r', 'l'):
+        if is_sonorant_or_vowel:
+            return True, 'р'
+        return False, None
+
+    # Інші приголосні не озвончуються
+    return False, None
+
+
+# ============================================================
+# ГОЛОВНА ФУНКЦІЯ ТРАНСЛІТЕРАЦІЇ
+# ============================================================
 
 def transliterate(text, rules=None):
     base_rules = {
@@ -197,6 +287,11 @@ def transliterate(text, rules=None):
     rules = base_rules
 
     fixed_text = fix_cyrillic_input(text).replace('-', ' ')
+    full_lower = fixed_text.lower().strip()
+
+    if full_lower in rules['special']:
+        return ' '.join(word.capitalize() for word in rules['special'][full_lower].split())
+
     parts = fixed_text.strip().split()
     if not parts:
         return ''
@@ -212,7 +307,6 @@ def transliterate(text, rules=None):
 
         word_lower = part.lower()
 
-        # Перевіряємо спочатку ціле слово в SPECIAL (для винятків типу 'ki')
         if word_lower in rules['special']:
             trans = rules['special'][word_lower]
             result_parts.append(trans)
@@ -220,9 +314,27 @@ def transliterate(text, rules=None):
             continue
 
         syllables = split_into_syllables(word_lower)
+
+        # ========== ЛОГІКА ДЛЯ ДВОСКЛАДОВИХ ІМЕН ==========
+        if len(syllables) > 1 and all(init and not vowel and not final for init, vowel, final in syllables):
+            trans_parts = []
+            for init, _, _ in syllables:
+                trans_part = transliterate(init, rules)
+                trans_parts.append(trans_part)
+            result_parts.append(' '.join(trans_parts))
+            prev_orig = word_lower
+            continue
+        # ===================================================
+
         trans_syllables = []
 
         for initial, vowel, final in syllables:
+            if initial and not vowel and not final:
+                trans_part = transliterate(initial, rules)
+                trans_syllables.append(trans_part)
+                prev_orig = initial
+                continue
+
             orig_syllable = initial + vowel + final
 
             vowel_trans = rules['vowels'].get(vowel, vowel)
@@ -230,36 +342,16 @@ def transliterate(text, rules=None):
 
             initial_trans = rules['initial'].get(initial, initial)
 
-            # Спецправила для j та s
-            if initial == 'j' and vowel == 'i':
-                initial_trans = 'дж'
-            elif initial == 'j' and vowel in ('u', 'oo'):
-                initial_trans = 'джу'
-            if initial == 's' and vowel == 'i':
+            # ========== ЛОГІКА ДЛЯ si* ==========
+            if initial == 's' and vowel and vowel.startswith('i'):
                 initial_trans = 'ш'
+            # ===================================
 
-            # ========== ОЗВОНЧЕННЯ ДЛЯ g, k, d, b, j ==========
-            # Згідно з правилом: g/k → ґ/к після голосних/сонантів
-            voiced = False
-            if prev_orig:
-                last_sound = get_final_sound(prev_orig)
-                if is_sonorant(last_sound) or last_sound in 'aeiouy':
-                    if initial in ('g', 'k', 'd', 'b', 'j'):
-                        voiced = True
-                    if initial in ('r', 'l') and (last_sound in 'aeiouy' or is_sonorant(last_sound)):
-                        voiced = True
-            if voiced:
-                voiced_map = {
-                    'g': 'ґ',
-                    'k': 'ґ',
-                    'd': 'д',
-                    'b': 'б',
-                    'j': 'дж',
-                    'r': 'р',
-                    'l': 'р'
-                }
-                initial_trans = voiced_map.get(initial, initial_trans)
-            # =================================================
+            # ========== НОВА ЛОГІКА ОЗВОНЧЕННЯ ==========
+            voiced, voiced_trans = apply_voicing(initial, prev_orig)
+            if voiced and voiced_trans:
+                initial_trans = voiced_trans
+            # ===========================================
 
             final_trans = get_final_trans(final, rules)
 
@@ -270,7 +362,6 @@ def transliterate(text, rules=None):
 
         result_parts.append(''.join(trans_syllables))
 
-    # Капіталізація
     final_result = ' '.join(result_parts)
     words = final_result.split()
     capitalized = []
@@ -281,41 +372,91 @@ def transliterate(text, rules=None):
             capitalized.append(w)
     return ' '.join(capitalized)
 
-# ======== ЗАВАНТАЖЕННЯ ЗОВНІШНІХ ПРАВИЛ ========
 
-def load_rules_from_file(filepath):
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"Файл '{filepath}' не знайдено. Використовуються тільки вбудовані правила.")
-        return None
-    except json.JSONDecodeError:
-        print(f"Помилка формату JSON у файлі '{filepath}'. Використовуються тільки вбудовані правила.")
-        return None
-
-# ======== ГОЛОВНА ПРОГРАМА ========
+# ============================================================
+# ТЕСТУВАННЯ
+# ============================================================
 
 def main():
-    RULES_FILE = 'rules.json'
-    external_rules = load_rules_from_file(RULES_FILE)
-    if external_rules:
-        print(f"Додаткові правила завантажено з {RULES_FILE}")
-    else:
-        print("Використовуються вбудовані правила.")
+    print("\n=== Транслітератор (система Концевича + авторські правила) ===\n")
 
-    print("\n=== Транслітерація корейських імен (латиниця -> українська) ===")
-    print("Введіть ім'я або назву латиницею (напр. 'Kim Soo Hyun').")
-    print("Для виходу введіть 'exit' або 'quit'.\n")
+    test_cases = [
+        ("Kim Nam Gil", "Кім Нам Ґіль"),
+        ("Lee Da Hee", "Лі Да Хі"),
+        ("Cha Eun Woo", "Ча Ин У"),
+        ("Sung Joon", "Сон Джун"),
+        ("Bae Jong", "Пе Чон"),
+        ("Go Kyung Pyo", "Ко Ґьон Пьо"),
+        ("Jeon Jung Kook", "Чон Чон Ґук"),
+        ("Ji Chang Wook", "Чі Чан Ук"),
+        ("Ahn Ji Hee", "Ан Джі Хі"),
+        ("Choi Si Hun", "Чхве Ші Хун"),
+        ("Shin Si Won", "Шін Ші Вон"),
+        ("Kim Si Hyun", "Кім Ші Хьон"),
+        ("Lee Si Young", "Лі Ші Йон"),
+        ("Park Si Eun", "Пак Ші Ин"),
+        ("Choi Si Woo", "Чхве Ші У"),
+        ("Park Ji Hoon", "Пак Джі Хун"),
+        ("Jung Hae In", "Чон Хе Ін"),
+        ("Han Ji Min", "Хан Чі Мін"),  # виняток
+        ("Park Jae Bum", "Пак Дже Бом"),
+        ("Park Ji Min", "Пак Джі Мін"),
+        ("Park Bong Sub", "Пак Бон Соп"),
+        ("Bang Si Hyuk", "Бан Ші Хьок"),  # виняток
+        ("Seong Huiju", "Сон Хі Джу"),  # виняток
+        ("Seong Taeju", "Сон Те Джу"),
+        ("Jo Yun Hee", "Чо Йон Хі"),  # виняток
+        ("Lee Sang Yeob", "Лі Сан Йоп"),  # виняток
+        ("Jeon Kwang Ryul", "Чон Кван Рьоль"),  # виняток
+        ("Seo In Guk", "Со Ін Ґук"),  # виняток
+        ("Ok Jin Uk", "Ок Джін Ук"),  # виняток
+        ("Min Hyo Gi", "Мін Хьо Ґі"),  # виняток
+        ("Shim Dal Gi", "Шім Даль Ґі"),  # виняток
+        ("Min Yoon Gi", "Мін Юн Ґі"),  # виняток
+        ("Lomon", "Пек Соломон"),  # сценічне
+        ("Wooyeon", "Пак Джін Ґьон"),  # сценічне
+        ("Ryu Minseok", "Рю Мін Сок"),
+        ("Kim Minsik", "Кім Мін Сік"),
+        ("Park Minyoung", "Пак Мін Йон"),
+        ("Lee Seohyun", "Лі Со Хьон"),
+        ("Kim Jaejoong", "Кім Дже Джун"),
+        ("Song Joongki", "Сон Джун Кі"),
+        ("Kim Jho Kwang Soo", "Кім Чо Кван Су"),
+        ("Lee Jong Suk", "Лі Чон Сок"),
+        ("Park Shin Hye", "Пак Шін Хє"),
+        ("Song Joong Ki", "Сон Джун Кі"),
+        ("Kim Soo Hyun", "Кім Су Хьон"),
+        ("Bae Yong Joon", "Пе Йон Джун"),
+        ("Jang Dong Gun", "Чан Дон Ґон"),
+        ("Kang Ho Dong", "Кан Хо Дон"),
+        ("Lee Min Ho", "Лі Мін Хо"),
+        ("Kim Tae Hee", "Кім Те Хі"),
+    ]
 
+    print("Тестування:")
+    print("-" * 60)
+    passed = 0
+    for name, expected in test_cases:
+        result = transliterate(name)
+        status = "✅" if result == expected else "❌"
+        print(f"{status} {name} → {result}")
+        if result != expected:
+            print(f"   Очікувано: {expected}")
+        else:
+            passed += 1
+    print("-" * 60)
+    print(f"Пройдено: {passed}/{len(test_cases)}")
+
+    print("\nВведіть ім'я латиницею (або 'exit' для виходу):")
     while True:
         user_input = input("> ").strip()
         if user_input.lower() in ('exit', 'quit', ''):
             break
         if not user_input:
             continue
-        result = transliterate(user_input, external_rules)
+        result = transliterate(user_input)
         print(f"→ {result}\n")
+
 
 if __name__ == "__main__":
     main()

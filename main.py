@@ -1,62 +1,64 @@
 import os
 import logging
+import psycopg2
+import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-import sqlite3
 
 from translit import transliterate
 
 # ===== НАЛАШТУВАННЯ =====
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
-if not TOKEN:
-    raise ValueError("❌ TELEGRAM_TOKEN не задано! Встановіть змінну оточення.")
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if not TOKEN or not DATABASE_URL:
+    raise ValueError("❌ TELEGRAM_TOKEN або DATABASE_URL не задано! Перевірте змінні оточення.")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CORRECTIONS_FILE = os.path.join(BASE_DIR, "corrections.txt")
-
-
 # ===== СТАН FSM =====
 class CorrectionStates(StatesGroup):
     waiting_for_correction = State()
 
-DB_FILE = os.path.join(BASE_DIR, "corrections.db")
 
+# ===== РОБОТА З БД (POSTGRESQL) =====
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS corrections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             original TEXT,
             wrong TEXT,
             correct TEXT
         )
     ''')
     conn.commit()
+    cursor.close()
     conn.close()
 
 def save_correction(original, wrong, correct):
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO corrections (original, wrong, correct) VALUES (?, ?, ?)",
+        cursor.execute("INSERT INTO corrections (original, wrong, correct) VALUES (%s, %s, %s)",
                        (original, wrong, correct))
         conn.commit()
+        cursor.close()
         conn.close()
         logging.info(f"💾 Виправлення збережено в БД: {original} → {correct}")
         return True
     except Exception as e:
         logging.error(f"❌ Помилка БД: {e}")
         return False
+
 
 # ===== СТВОРЕННЯ БОТА =====
 bot = Bot(token=TOKEN)
@@ -81,22 +83,26 @@ async def cmd_start(message: types.Message):
 # ===== КОМАНДА /CORRECTIONS =====
 @dp.message(Command("corrections"))
 async def cmd_corrections(message: types.Message):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT original, wrong, correct FROM corrections ORDER BY id DESC LIMIT 10")
-    rows = cursor.fetchall()
-    conn.close()
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("SELECT original, wrong, correct FROM corrections ORDER BY id DESC LIMIT 10")
+        rows = cursor.fetchall()
+        conn.close()
 
-    if not rows:
-        await message.answer("📭 База виправлень порожня.")
-    else:
-        text = "📋 Останні 10 виправлень:\n\n"
-        for row in rows:
-            text += f"• {row[0]} | {row[1]} → <b>{row[2]}</b>\n"
-        await message.answer(text, parse_mode="HTML")
+        if not rows:
+            await message.answer("📭 База виправлень порожня.")
+        else:
+            text = "📋 Останні 10 виправлень:\n\n"
+            for row in rows:
+                text += f"• {row[0]} | {row[1]} → <b>{row[2]}</b>\n"
+            await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"❌ Помилка при читанні з БД: {e}")
+        await message.answer("❌ Не вдалося отримати виправлення з бази даних.")
 
 
-# ===== ОБРОБНИК ТЕКСТОВИХ ПОВІДОМЛЕНЬ (тільки якщо не в стані виправлення) =====
+# ===== ОБРОБНИК ТЕКСТОВИХ ПОВІДОМЛЕНЬ =====
 @dp.message(~StateFilter(CorrectionStates.waiting_for_correction))
 async def handle_message(message: types.Message, state: FSMContext):
     text = message.text.strip()
@@ -132,7 +138,6 @@ async def handle_message(message: types.Message, state: FSMContext):
 
 
 # ===== ОБРОБНИК НАТИСКАННЯ КНОПКИ "ВИПРАВИТИ" =====
-# ===== ОБРОБНИК НАТИСКАННЯ КНОПКИ "ВИПРАВИТИ" =====
 @dp.callback_query(F.data == "fix")
 async def fix_callback(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -151,7 +156,6 @@ async def fix_callback(callback: types.CallbackQuery, state: FSMContext):
         ]
     )
 
-    # Динамічний текст підказки залежно від кількості результатів
     prompt_text = "✏️ <b>Напишіть правильний варіант.</b>\n\n"
     if len(results) == 1:
         prompt_text += "Оскільки ім'я лише одне, просто напишіть правильний варіант (без цифр).\n\n"
@@ -179,7 +183,7 @@ async def receive_correction(message: types.Message, state: FSMContext):
     data = await state.get_data()
     results = data.get("fix_results", [])
 
-    if not results:
+    if not Outer_results := results:
         await state.clear()
         await message.answer("❌ Немає даних для виправлення. Почніть спочатку.")
         return
@@ -187,14 +191,14 @@ async def receive_correction(message: types.Message, state: FSMContext):
     saved_corrections = []
     errors = []
 
-    # 1. Логіка для ОДНОГО результату (дозволяємо без "1:")
+    # 1. Логіка для ОДНОГО результату (без "1:")
     if len(results) == 1 and ":" not in user_input:
         orig, wrong = results[0]
         correction = user_input
         if save_correction(orig, wrong, correction):
             saved_corrections.append((orig, wrong, correction))
         else:
-            errors.append("Не вдалося зберегти у файл.")
+            errors.append("Не вдалося зберегти у базу даних.")
 
     # 2. Логіка для БАГАТЬОХ результатів або явного використання "Номер:"
     else:
@@ -225,7 +229,7 @@ async def receive_correction(message: types.Message, state: FSMContext):
             except ValueError:
                 errors.append(f"❌ '{parts[0]}' не є числом у рядку '{line}'.")
 
-    # Формуємо красиву відповідь
+    # Формуємо відповідь користувачу
     response_text = ""
     if saved_corrections:
         response_text += "✅ <b>Виправлення збережено:</b>\n"
@@ -239,43 +243,34 @@ async def receive_correction(message: types.Message, state: FSMContext):
         response_text = "Нічого не було змінено. Перевірте формат."
 
     await message.answer(response_text, parse_mode="HTML")
+    
+    # Якщо все пройшло успішно і без помилок — закриваємо стан FSM
     if saved_corrections and not errors:
-        # Додаємо повідомлення про готовність до наступного запиту
         await message.answer("🔄 Надсилай наступне ім'я.")
         await state.clear()
 
-    # Якщо були успішні збереження і не було помилок — виходимо зі стану.
-    # Якщо були помилки — залишаємо стан відкритим, щоб юзер міг виправити помилку.
-    if saved_corrections and not errors:
-        await state.clear()
 
-
-# ===== ОБРОБНИК СКАСУВАННЯ (через кнопку) =====
+# ===== ОБРОБНИК СКАСУВАННЯ (через інлайн-кнопку) =====
 @dp.callback_query(F.data == "cancel_fix")
 async def cancel_fix_callback(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
     await callback.message.edit_text("Операцію скасовано.")
 
-@dp.message(Command("get_db"))
-async def cmd_get_db(message: types.Message):
-    # Надсилаємо файл бази даних користувачу
-    doc = types.FSInputFile(DB_FILE)
-    await message.answer_document(doc, caption="Ось ваша база даних")
-    
+
 # ===== ОБРОБНИК КОМАНДИ /CANCEL =====
 @dp.message(Command("cancel"))
 async def cmd_cancel(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Операцію скасовано.")
 
+
+# ===== ЗАПУСК БОТА =====
 async def main():
-    init_db() # Ініціалізація замість створення текстового файлу
-    logging.info(f"🚀 Бот запущено. База даних: {DB_FILE}")
+    init_db()  # Створення таблиці в Supabase, якщо її немає
+    logging.info("🚀 Бот запускається з хмарною базою PostgreSQL...")
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    import asyncio
-
     asyncio.run(main())

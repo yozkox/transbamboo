@@ -1,7 +1,9 @@
 import os
 import logging
-import psycopg2
+import sqlite3
 import asyncio
+from threading import Thread
+from flask import Flask
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -13,82 +15,64 @@ from translit import transliterate
 
 # ===== НАЛАШТУВАННЯ =====
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
 if not TOKEN:
-    raise ValueError("❌ TELEGRAM_TOKEN не задано! Встановіть змінну оточення.")
-if not DATABASE_URL:
-    raise ValueError("❌ DATABASE_URL не задано! Встановіть змінну оточення.")
+    raise ValueError("❌ TELEGRAM_TOKEN не задано! Додайте змінну оточення на Render.")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 
-# ===== СТАН FSM =====
-class CorrectionStates(StatesGroup):
-    waiting_for_correction = State()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "corrections.db")
 
-# ===== РОБОТА З БД (POSTGRESQL) =====
-def get_db_connection():
-    """Повертає підключення до PostgreSQL (Supabase)."""
-    return psycopg2.connect(DATABASE_URL)
+# ===== FLASK ДЛЯ HEALTH CHECK =====
+flask_app = Flask(__name__)
 
+@flask_app.route('/')
+def home():
+    return "✅ Бот працює!"
+
+@flask_app.route('/health')
+def health():
+    return "OK", 200
+
+# ===== БАЗА ДАНИХ (SQLite) =====
 def init_db():
-    """Створює таблицю corrections, якщо вона не існує."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS corrections (
-                id SERIAL PRIMARY KEY,
-                original TEXT,
-                wrong TEXT,
-                correct TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        conn.commit()
-        cursor.close()
-        conn.close()
-        logging.info("✅ Таблицю 'corrections' перевірено/створено.")
-    except Exception as e:
-        logging.error(f"❌ Помилка ініціалізації БД: {e}")
-        raise
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS corrections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            original TEXT,
+            wrong TEXT,
+            correct TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+    logging.info(f"✅ База даних готова: {DB_FILE}")
 
 def save_correction(original, wrong, correct):
     try:
-        conn = get_db_connection()
+        conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO corrections (original, wrong, correct) VALUES (%s, %s, %s)",
+            "INSERT INTO corrections (original, wrong, correct) VALUES (?, ?, ?)",
             (original, wrong, correct)
         )
         conn.commit()
-        cursor.close()
         conn.close()
-        logging.info(f"💾 Виправлення збережено в БД: {original} → {correct}")
+        logging.info(f"💾 Збережено: {original} → {correct}")
         return True
     except Exception as e:
-        logging.error(f"❌ Помилка БД (save): {e}")
+        logging.error(f"❌ Помилка БД: {e}")
         return False
 
-def get_last_corrections(limit=10):
-    """Повертає останні виправлення з БД."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT original, wrong, correct FROM corrections ORDER BY id DESC LIMIT %s",
-            (limit,)
-        )
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return rows
-    except Exception as e:
-        logging.error(f"❌ Помилка БД (get): {e}")
-        return []
+# ===== СТАН FSM =====
+class CorrectionStates(StatesGroup):
+    waiting_for_correction = State()
 
 # ===== СТВОРЕННЯ БОТА =====
 bot = Bot(token=TOKEN)
@@ -110,22 +94,30 @@ async def cmd_start(message: types.Message):
 
 @dp.message(Command("corrections"))
 async def cmd_corrections(message: types.Message):
-    rows = get_last_corrections()
-    if not rows:
-        await message.answer("📭 База виправлень порожня.")
-    else:
-        text = "📋 Останні 10 виправлень:\n\n"
-        for row in rows:
-            original, wrong, correct = row
-            text += f"• {original} | {wrong} → <b>{correct}</b>\n"
-        await message.answer(text, parse_mode="HTML")
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT original, wrong, correct FROM corrections ORDER BY id DESC LIMIT 10")
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            await message.answer("📭 База виправлень порожня.")
+        else:
+            text = "📋 Останні 10 виправлень:\n\n"
+            for row in rows:
+                text += f"• {row[0]} | {row[1]} → <b>{row[2]}</b>\n"
+            await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"❌ Помилка читання: {e}")
+        await message.answer("❌ Не вдалося отримати виправлення.")
 
 @dp.message(Command("cancel"))
 async def cmd_cancel(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("❌ Операцію скасовано.")
 
-# ===== ОБРОБНИК ТЕКСТОВИХ ПОВІДОМЛЕНЬ =====
+# ===== ОБРОБНИК ПОВІДОМЛЕНЬ =====
 @dp.message(~StateFilter(CorrectionStates.waiting_for_correction))
 async def handle_message(message: types.Message, state: FSMContext):
     text = message.text.strip()
@@ -145,9 +137,7 @@ async def handle_message(message: types.Message, state: FSMContext):
         await message.answer("Немає тексту для перекладу.")
         return
 
-    reply_lines = []
-    for orig, trans in results:
-        reply_lines.append(f"📝 {orig} → {trans}")
+    reply_lines = [f"📝 {orig} → {trans}" for orig, trans in results]
     reply_text = "\n".join(reply_lines)
 
     keyboard = InlineKeyboardMarkup(
@@ -159,7 +149,7 @@ async def handle_message(message: types.Message, state: FSMContext):
     await state.update_data(last_results=results)
     await message.answer(reply_text, reply_markup=keyboard)
 
-# ===== ОБРОБНИК КНОПКИ "ВИПРАВИТИ" =====
+# ===== ОБРОБНИК ВИПРАВЛЕННЯ =====
 @dp.callback_query(F.data == "fix")
 async def fix_callback(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -167,7 +157,7 @@ async def fix_callback(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     results = data.get("last_results", [])
     if not results:
-        await callback.message.edit_text("Немає даних для виправлення. Надішліть текст ще раз.")
+        await callback.message.edit_text("Немає даних для виправлення.")
         return
 
     lines = "\n".join([f"<b>{i + 1}.</b> {orig} → {trans}" for i, (orig, trans) in enumerate(results)])
@@ -180,11 +170,10 @@ async def fix_callback(callback: types.CallbackQuery, state: FSMContext):
 
     prompt_text = "✏️ <b>Напишіть правильний варіант.</b>\n\n"
     if len(results) == 1:
-        prompt_text += "Оскільки ім'я лише одне, просто напишіть правильний варіант (без цифр).\n\n"
+        prompt_text += "Просто напишіть правильний варіант (без цифр).\n\n"
     else:
         prompt_text += (
-            "Формат:\n<b>Номер_рядка: виправлення</b>\n"
-            "<i>(можна виправити кілька одразу, кожне з нового рядка)</i>\n\n"
+            "Формат: <b>Номер_рядка: виправлення</b>\n"
             "Наприклад:\n1: Кім Су Хьон\n3: Пак Бо Ґом\n\n"
         )
 
@@ -197,7 +186,6 @@ async def fix_callback(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(CorrectionStates.waiting_for_correction)
     await state.update_data(fix_results=results)
 
-# ===== ОТРИМАННЯ ВИПРАВЛЕННЯ =====
 @dp.message(StateFilter(CorrectionStates.waiting_for_correction))
 async def receive_correction(message: types.Message, state: FSMContext):
     user_input = message.text.strip()
@@ -206,70 +194,72 @@ async def receive_correction(message: types.Message, state: FSMContext):
 
     if not results:
         await state.clear()
-        await message.answer("❌ Немає даних для виправлення. Почніть спочатку.")
+        await message.answer("❌ Дані втрачено. Почніть спочатку.")
         return
 
-    saved_corrections = []
+    saved = []
     errors = []
 
     if len(results) == 1 and ":" not in user_input:
         orig, wrong = results[0]
-        correction = user_input
-        if save_correction(orig, wrong, correction):
-            saved_corrections.append((orig, wrong, correction))
+        if save_correction(orig, wrong, user_input):
+            saved.append((orig, wrong, user_input))
         else:
-            errors.append("Не вдалося зберегти у базу даних.")
+            errors.append("Не вдалося зберегти.")
     else:
-        lines = user_input.splitlines()
-        for line in lines:
+        for line in user_input.splitlines():
             line = line.strip()
             if not line:
                 continue
-            parts = line.split(":", 1)
-            if len(parts) != 2:
-                errors.append(f"❌ Неправильний формат у '{line}'. Використовуйте 'Номер: виправлення'.")
+            if ":" not in line:
+                errors.append(f"❌ Неправильний формат: '{line}'")
                 continue
             try:
-                idx = int(parts[0].strip()) - 1
-                correction = parts[1].strip()
+                idx_str, correct = line.split(":", 1)
+                idx = int(idx_str.strip()) - 1
+                correct = correct.strip()
                 if idx < 0 or idx >= len(results):
-                    errors.append(f"❌ Номер {idx + 1} поза межами (всього {len(results)}).")
+                    errors.append(f"❌ Номер {idx+1} поза межами.")
                     continue
                 orig, wrong = results[idx]
-                if save_correction(orig, wrong, correction):
-                    saved_corrections.append((orig, wrong, correction))
+                if save_correction(orig, wrong, correct):
+                    saved.append((orig, wrong, correct))
                 else:
                     errors.append(f"❌ Помилка збереження для '{orig}'.")
             except ValueError:
-                errors.append(f"❌ '{parts[0]}' не є числом у рядку '{line}'.")
+                errors.append(f"❌ Не число: '{idx_str}'")
 
-    response_text = ""
-    if saved_corrections:
-        response_text += "✅ <b>Виправлення збережено:</b>\n"
-        for orig, wrong, correct in saved_corrections:
-            response_text += f"• <i>{orig}</i>: {wrong} → <b>{correct}</b>\n"
+    response = ""
+    if saved:
+        response += "✅ <b>Збережено:</b>\n" + "\n".join(
+            f"• {orig}: {wrong} → <b>{corr}</b>" for orig, wrong, corr in saved
+        ) + "\n"
     if errors:
-        response_text += "\n⚠️ <b>Помилки:</b>\n" + "\n".join(errors)
-    if not response_text:
-        response_text = "Нічого не було змінено. Перевірте формат."
+        response += "\n⚠️ <b>Помилки:</b>\n" + "\n".join(errors)
+    if not response:
+        response = "Нічого не змінено."
 
-    await message.answer(response_text, parse_mode="HTML")
-    if saved_corrections and not errors:
-        await message.answer("🔄 Надсилай наступне ім'я.")
+    await message.answer(response, parse_mode="HTML")
+    if saved and not errors:
         await state.clear()
 
-# ===== СКАСУВАННЯ =====
 @dp.callback_query(F.data == "cancel_fix")
 async def cancel_fix_callback(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
-    await callback.message.edit_text("Операцію скасовано.")
+    await callback.message.edit_text("❌ Скасовано.")
 
 # ===== ЗАПУСК =====
-async def main():
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    flask_app.run(host="0.0.0.0", port=port)
+
+async def start_bot():
     init_db()
-    logging.info("🚀 Бот запускається з базою Supabase PostgreSQL...")
+    logging.info(f"🚀 Бот запущено. База: {DB_FILE}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Запускаємо Flask у окремому потоці
+    Thread(target=run_flask, daemon=True).start()
+    asyncio.run(start_bot())

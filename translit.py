@@ -5,12 +5,14 @@ from collections import OrderedDict
 # ======== ВБУДОВАНІ ПРАВИЛА ========
 
 VOWELS = OrderedDict([
-    ('yeo', 'йо'), ('ye', 'є'), ('yo', 'йо'), ('yu', 'ю'), ('ya', 'я'),     ('young', 'йон'),
-    ('yong', 'йон'),
-    ('woon', 'ун'), ('woo', 'у'), ('yung', 'ьон'),
+    ('yeon', 'йон'),
+    ('yeo', 'йо'), ('ye', 'є'), ('yo', 'йо'), ('yu', 'ю'), ('ya', 'я'),
+    ('young', 'йон'), ('yong', 'йон'),
     ('yae', 'йя'), ('yi', 'лі'), ('yoo', 'ю'), ('you', 'ю'),
+    ('woon', 'ун'), ('woo', 'у'), ('yung', 'ьон'),
     ('wa', 'ва'), ('wae', 'ве'), ('wo', 'во'), ('we', 'ве'),
     ('wi', 'ві'), ('ui', 'ий'), ('eu', 'и'), ('eo', 'о'),
+    ('eon', 'он'),
     ('ae', 'е'), ('oe', 'ве'), ('oo', 'у'), ('um', 'ом'), ('ee', 'і'),
     ('a', 'а'), ('o', 'о'), ('u', 'у'), ('e', 'е'), ('i', 'і'),
 ])
@@ -31,14 +33,12 @@ FINAL_CONSONANTS = {
     'lg': 'лк', 'lm': 'лм', 'lb': 'лп', 'ls': 'лс',
     'lt': 'лт', 'lp': 'лп', 'lh': 'лх', 'm': 'м',
     'p': 'п', 'ps': 'пс', 's': 'т', 'ss': 'т',
-    'ng': 'н', 'ch': 'т', 'h': 'т','r': 'р'
+    'ng': 'н', 'ch': 'т', 'h': 'т', 'r': 'р'
 }
 
-# ======== СПЕЦІАЛЬНІ ВИПАДКИ (згідно з вашими правилами) ========
 SPECIAL = {
-    'hyoung': 'хьон',
+    # Традиційні прізвища
     'choi': 'чхве',
-    'uhm': 'ом',
     'shin': 'шін',
     'hwi': 'хві',
     'lee': 'лі',
@@ -46,13 +46,6 @@ SPECIAL = {
     'yang': 'ян',
     'ryang': 'ян',
     'ro': 'но',
-    'jeong': 'чон',
-    'jong': 'чон',
-    'jung': 'чон',
-    'jun': 'джун',        # нове правило
-    'joon': 'джун',       # нове правило
-    'joong': 'джун',      # нове правило
-    'jeon': 'чон',
     'ahn': 'ан',
     'oh': 'о',
     'park': 'пак',
@@ -63,37 +56,41 @@ SPECIAL = {
     'han': 'хан',
     'hong': 'хон',
     'nam': 'нам',
-    'jin': 'джін',        # завжди Джін
-    'sun': 'сон',
-    'sung': 'сон',        # прізвище Сон
-    'kye': 'кє',          # виняток для Kye
-    'hye': 'хє',  # ДОДАТИ
-    'hyun': 'хьон',  # ДОДАТИ (для впевненості)
+    'yim': 'ім',
+    'uhm': 'ом',
+    'hur': 'хо',
+    'eum': 'им',
+
+    # Фіксовані передачі складів
+    'jeong': 'чон',
+    'jong': 'чон',
+    'jung': 'чон',
+    'jeon': 'чон',
+    'jun': 'джун',
+    'joon': 'джун',
+    'joong': 'джун',
+    'jin': 'джін',
+    'hyun': 'хьон',
     'hyuk': 'хьок',
-    # ===== Окремі склади-винятки =====
-    'si': 'ші',           # s+i → ші (але автоматика це вже робить, можна прибрати)
-    'sik': 'шік',         # аналогічно
-    'ah': 'а',            # ah → а
-    # ===== Винятки для озвончення (якщо автоматика не спрацьовує) =====
-    # Залишаємо тільки ті, які дійсно потрібні
-    'je': 'дже',
-    'ju': 'джу',
-    'jo': 'джо',
-    'ja': 'джа',
-    'jye': 'джє',
-    'jyo': 'дьо',
-    'dae': 'де',
-    'de': 'де',
-    'di': 'ді',
-    'du': 'ду',
-    'do': 'до',
-    'da': 'да',
-    'bye': 'бє',
-    'bi': 'бі',
-    'bu': 'бу',
-    'bo': 'бо',
-    'ba': 'ба',
-    'be': 'бе',
+    'hyoung': 'хьон',
+    'hye': 'хє',
+    'kye': 'кє',
+    'sung': 'сон',
+    'sun': 'сун',
+    'soon': 'сун',
+    'woong': 'ун',
+    'gun': 'ґон',
+    'bum': 'бом',
+    'chung': 'чон',
+    'jae': 'дже',
+    'gyung': 'ґюн',
+    'ki': 'кі',           # виняток для Ki (Кан Силь Кі)
+    'gi': 'кі',           # виняток для Gi (Чон Джін Кі)
+
+    # Окремі випадки
+    'si': 'ші',
+    'sik': 'шік',
+    'ah': 'а',
 }
 
 # ======== ВИПРАВЛЕННЯ РОЗКЛАДКИ ========
@@ -118,13 +115,9 @@ CYRILLIC_TO_LATIN = {
 def fix_cyrillic_input(text):
     return ''.join(CYRILLIC_TO_LATIN.get(ch, ch) for ch in text)
 
-# ======== РОЗБИТТЯ НА СКЛАДИ (ВИПРАВЛЕНЕ) ========
+# ======== РОЗБИТТЯ НА СКЛАДИ ========
 
 def split_into_syllables(word):
-    """
-    Розбиває слово на склади, знаходячи найдовшу голосну на кожній позиції.
-    Повертає список (initial, vowel, final).
-    """
     word = word.lower()
     syllables = []
     while word:
@@ -209,7 +202,7 @@ def transliterate(text, rules=None):
         return ''
 
     result_parts = []
-    prev_orig = ''  # Глобальний для всього тексту, не скидається між словами
+    prev_orig = ''
 
     for part in parts:
         if not re.match(r'^[a-zA-Z]+$', part):
@@ -219,11 +212,11 @@ def transliterate(text, rules=None):
 
         word_lower = part.lower()
 
-        # Спеціальний випадок для цілого слова
+        # Перевіряємо спочатку ціле слово в SPECIAL (для винятків типу 'ki')
         if word_lower in rules['special']:
             trans = rules['special'][word_lower]
             result_parts.append(trans)
-            prev_orig = word_lower  # запам'ятовуємо оригінал для озвончення наступного
+            prev_orig = word_lower
             continue
 
         syllables = split_into_syllables(word_lower)
@@ -235,29 +228,30 @@ def transliterate(text, rules=None):
             vowel_trans = rules['vowels'].get(vowel, vowel)
             vowel_trans = apply_vowel_softening(vowel, vowel_trans, initial, prev_orig)
 
-            # Початкова приголосна (базова)
             initial_trans = rules['initial'].get(initial, initial)
+
+            # Спецправила для j та s
             if initial == 'j' and vowel == 'i':
                 initial_trans = 'дж'
             elif initial == 'j' and vowel in ('u', 'oo'):
                 initial_trans = 'джу'
-            # Спецправило: s + i -> ші
             if initial == 's' and vowel == 'i':
                 initial_trans = 'ш'
 
             # ========== ОЗВОНЧЕННЯ ДЛЯ g, k, d, b, j ==========
+            # Згідно з правилом: g/k → ґ/к після голосних/сонантів
             voiced = False
             if prev_orig:
                 last_sound = get_final_sound(prev_orig)
                 if is_sonorant(last_sound) or last_sound in 'aeiouy':
-                    if initial in ('g', 'd', 'b', 'j', 'k'):   # додано 'k'
+                    if initial in ('g', 'k', 'd', 'b', 'j'):
                         voiced = True
                     if initial in ('r', 'l') and (last_sound in 'aeiouy' or is_sonorant(last_sound)):
                         voiced = True
             if voiced:
                 voiced_map = {
                     'g': 'ґ',
-                    'k': 'ґ',    # додано для k
+                    'k': 'ґ',
                     'd': 'д',
                     'b': 'б',
                     'j': 'дж',
@@ -272,7 +266,6 @@ def transliterate(text, rules=None):
             syllable_trans = initial_trans + vowel_trans + final_trans
             trans_syllables.append(syllable_trans)
 
-            # Запам'ятовуємо оригінальний склад для наступного
             prev_orig = orig_syllable
 
         result_parts.append(''.join(trans_syllables))

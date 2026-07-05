@@ -1,6 +1,6 @@
 import os
 import logging
-import sqlite3
+import psycopg2
 import asyncio
 from threading import Thread
 from flask import Flask
@@ -15,16 +15,17 @@ from translit import transliterate
 
 # ===== НАЛАШТУВАННЯ =====
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
 if not TOKEN:
     raise ValueError("❌ TELEGRAM_TOKEN не задано! Додайте змінну оточення на Render.")
+if not DATABASE_URL:
+    raise ValueError("❌ DATABASE_URL не задано! Додайте змінну оточення на Render.")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE = os.path.join(BASE_DIR, "corrections.db")
 
 # ===== FLASK ДЛЯ HEALTH CHECK =====
 flask_app = Flask(__name__)
@@ -37,32 +38,38 @@ def home():
 def health():
     return "OK", 200
 
-# ===== БАЗА ДАНИХ (SQLite) =====
+# ===== БАЗА ДАНИХ (Supabase PostgreSQL) =====
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS corrections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            original TEXT,
-            wrong TEXT,
-            correct TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    conn.close()
-    logging.info(f"✅ База даних готова: {DB_FILE}")
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS corrections (
+                id SERIAL PRIMARY KEY,
+                original TEXT,
+                wrong TEXT,
+                correct TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+        cur.close()
+        conn.close()
+        logging.info("✅ Таблиця створена або вже існує в Supabase.")
+    except Exception as e:
+        logging.error(f"❌ Помилка створення таблиці: {e}")
+        raise
 
 def save_correction(original, wrong, correct):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO corrections (original, wrong, correct) VALUES (?, ?, ?)",
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO corrections (original, wrong, correct) VALUES (%s, %s, %s)",
             (original, wrong, correct)
         )
         conn.commit()
+        cur.close()
         conn.close()
         logging.info(f"💾 Збережено: {original} → {correct}")
         return True
@@ -95,10 +102,10 @@ async def cmd_start(message: types.Message):
 @dp.message(Command("corrections"))
 async def cmd_corrections(message: types.Message):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT original, wrong, correct FROM corrections ORDER BY id DESC LIMIT 10")
-        rows = cursor.fetchall()
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("SELECT original, wrong, correct FROM corrections ORDER BY id DESC LIMIT 10")
+        rows = cur.fetchall()
         conn.close()
 
         if not rows:
@@ -256,10 +263,9 @@ def run_flask():
 
 async def start_bot():
     init_db()
-    logging.info(f"🚀 Бот запущено. База: {DB_FILE}")
+    logging.info(f"🚀 Бот запущено з базою Supabase.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    # Запускаємо Flask у окремому потоці
     Thread(target=run_flask, daemon=True).start()
     asyncio.run(start_bot())

@@ -11,7 +11,9 @@ import sqlite3
 from translit import transliterate
 
 # ===== НАЛАШТУВАННЯ =====
-TOKEN = "8960632200:AAEjdIb9KHLTjG-z5TK1DJofHw7e4vnO1ZY"  # Вставте свій токен
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
+if not TOKEN:
+    raise ValueError("❌ TELEGRAM_TOKEN не задано! Встановіть змінну оточення.") # Вставте свій токен
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

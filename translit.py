@@ -26,6 +26,7 @@ VOWELS = OrderedDict([
     ('uk', 'ук'),  # ← виправлено з 'ок'
     ('ub', 'оп'),
     ('up', 'оп'),
+    ('yum', 'ьом'),
     ('yun', 'юн'),  # ← виправлено з 'юн'
     ('joo', 'джу'),
     ('yul', 'ьоль'),  # ← додано
@@ -62,7 +63,7 @@ COMMON_PARTS = [
     'min', 'soo', 'hyun', 'joon', 'jun', 'jin', 'sung', 'sun', 'yeon', 'hye',
     'young', 'yong', 'kyung', 'gyeong', 'hyeon', 'hyon', 'seok', 'suk',
     'seong', 'tae', 'ju', 'hui', 'joong', 'ki', 'sik', 'bong', 'bang',
-    'gyeol', 'yeol',
+    'gyeol', 'yeol','kwang'
 ]
 
 
@@ -84,24 +85,23 @@ def split_compound_word(word):
 
 
 SPECIAL = {
-    'choi': 'чхве', 'shin': 'шін', 'hwi': 'хві',
+    'choi': 'чхве', 'shin': 'шін', 'hwi': 'хві','ki': 'кі',
     'lee': 'лі', 'lim': 'лім', 'yang': 'ян', 'ryang': 'ян',
     'ro': 'но', 'ahn': 'ан', 'oh': 'о', 'park': 'пак',
     'kim': 'кім', 'kwon': 'квон', 'won': 'вон', 'jang': 'чан',
     'han': 'хан', 'hong': 'хон', 'nam': 'нам',
     'yim': 'ім', 'uhm': 'ом', 'hur': 'хо', 'eum': 'им',
-    'kwang': 'кван', 'noh': 'но', 'taec': 'тек',
-    'jeong': 'чон', 'jong': 'чон', 'jung': 'чон',
+    'kwangil': 'кван іль', 'noh': 'но', 'taec': 'тек',
+    'jeong': 'чон', 'jong': 'чон', 'jung': 'чон','myeong': 'мьон','ryu': 'ю',
     'jeon': 'чон', 'jun': 'джун', 'joon': 'джун',
     'joong': 'джун', 'jin': 'джін','suk': 'сок',
     'hyun': 'хьон', 'hyuk': 'хьок', 'hyoung': 'хьон',
     'hye': 'хє', 'kye': 'кє',
     'sung': 'сон', 'sun': 'сон', 'soon': 'сун',
     'woong': 'ун', 'gun': 'ґон', 'bum': 'бом', 'yul':'юль',
-    'chung': 'чон',
-    'ki': 'кі', 'gi': 'кі',
+    'chung': 'чон', 'ja': 'ча',
     'si': 'ші', 'sik': 'шік', 'ah': 'а',
-    'jho': 'чо', 'dong':'дон', 'do':'до', 'byung':'бьон','krystal':'крістал',
+    'jho': 'чо', 'dong':'дон', 'do':'до','krystal':'крістал',
     # ========== ВИНЯТКИ З ТАБЛИЦІ ==========
     'park ji hoon': 'пак джі хун',
     'park jae bum': 'пак дже бом',
@@ -245,7 +245,9 @@ def apply_voicing(initial, prev_orig):
 
     # 2. ㅂ (b) → завжди б в іменах (крім початку слова)
     if initial == 'b':
-        return True, 'б'  # завжди б (крім початку)
+        if is_sonorant_or_vowel:
+            return True, 'б'
+        return False, None  # залишаємо 'п'
 
     # 3. ㄱ (g/k) → за системою Концевича
     if initial in ('g', 'k'):

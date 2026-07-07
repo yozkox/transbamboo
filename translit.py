@@ -85,12 +85,12 @@ def split_compound_word(word):
 
 
 SPECIAL = {
-    'choi': 'чхве', 'shin': 'шін', 'hwi': 'хві','ki': 'кі','yeong': 'Йон','reong': 'рьон',
+    'choi': 'чхве', 'shin': 'шін', 'hwi': 'хві','ki': 'кі','yeong': 'Йон','reong': 'рьон','changbin': 'чан бін',
     'lee': 'лі', 'lim': 'лім', 'yang': 'ян', 'ryang': 'ян','кyung': 'кьон','ryeong': 'рьон',
-    'ro': 'но', 'ahn': 'ан', 'oh': 'о', 'park': 'пак',
-    'kim': 'кім', 'kwon': 'квон', 'won': 'вон', 'jang': 'чан',
-    'han': 'хан', 'hong': 'хон', 'nam': 'нам',
-    'yim': 'ім', 'uhm': 'ом', 'hur': 'хо', 'eum': 'им',
+    'ro': 'но', 'ahn': 'ан', 'oh': 'о', 'park': 'пак', 'jeongin': 'чон ін', 'felix': 'фелікс',
+    'kim': 'кім', 'kwon': 'квон', 'won': 'вон', 'jang': 'чан','jisung': 'джі сон',
+    'han': 'хан', 'hong': 'хон', 'nam': 'нам', 'minho': 'мін хо','seungmin': 'син мін',
+    'yim': 'ім', 'uhm': 'ом', 'hur': 'хо', 'eum': 'им','wu': 'у',
     'kwangil': 'кван іль', 'noh': 'но', 'taec': 'тек',
     'jeong': 'чон', 'jong': 'чон', 'jung': 'чон','myeong': 'мьон','ryu': 'ю',
     'jeon': 'чон', 'jun': 'джун', 'joon': 'джун',
